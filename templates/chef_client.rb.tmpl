@@ -50,9 +50,6 @@ symbols that will be placed inside here, and not actual strings...
 {% if file_backup_path %}
     file_backup_path       "{{file_backup_path}}"
 {% endif %}
-{% if pid_file %}
-    pid_file               "{{pid_file}}"
-{% endif %}
 {% if show_time %}
     Chef::Log::Formatter.show_time = true
 {% endif %}
