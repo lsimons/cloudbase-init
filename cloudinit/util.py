@@ -27,14 +27,14 @@ import copy as obj_copy
 import ctypes
 import errno
 import glob
-import grp
+# import grp
 import gzip
 import hashlib
 import json
 import os
 import os.path
 import platform
-import pwd
+# import pwd
 import random
 import re
 import shutil

@@ -58,6 +58,7 @@ It can be configured with the following option structure::
                         to C:\first-boot.json)
        exec: boolean to run or not run chef (defaults to true)
        msi_url: url from which to download the chef msi
+       server_url: url for the chef server
 
     chef.rb template keys (if falsey, then will be skipped and not
                            written to C:\chef\client.rb):
@@ -105,16 +106,22 @@ class ChefBootstrapPlugin(base.BasePlugin):
     """
 
     def execute(self, service, shared_data):
-        instance_id = service.get_instance_id()
-        if not instance_id:
-            LOG.debug('Instance ID not found in metadata')
+        LOG.debug('Executing')
+        hostname = service.get_host_name() # at least on cloudstack, instance_id is UUID, not what we want
+        if not hostname:
+            LOG.debug('hostname not found in metadata')
             return base.PLUGIN_EXECUTE_ON_NEXT_BOOT, False
         chef_cfg = {
-            "instance_id": instance_id
+            "instance_id": hostname,
+            "server_url": SERVER_URL,
+            "validation_name": VALIDATION_NAME
         }
         chef_cfg.update(shared_data)
         user_data = service.get_user_data()
-        user_data = json.loads(user_data.decode('utf8'))
+        try:
+            user_data = json.loads(user_data.decode('utf8'))
+        except ValueError, e:
+            LOG.debug('Could not load user_data as json:\n%s' % user_data)
         chef_cfg.update(user_data)
 
         handle(chef_cfg, LOG)
@@ -125,10 +132,10 @@ class ChefBootstrapPlugin(base.BasePlugin):
             return base.PLUGIN_EXECUTE_ON_NEXT_BOOT, False
 
 # todo what's a nice flexible way to fill this in?
-TEMPLATE_PATH_BASE = "C:\\Program Files (x86)\\Cloudbase Solutions\\Cloudbase-Init\\" \
-                     "Python27\\Lib\\site-packages\\cloudinit"
+TEMPLATE_PATH_BASE = "C:/Program Files (x86)/Cloudbase Solutions/Cloudbase-Init/" \
+                     "Python27/Lib/site-packages/cloudinit/templates/%s.tmpl"
 # todo what's a nice flexible way to fill this in?
-CHEF_SERVER = "betachef.schubergphilis.com"
+CHEF_SERVER = "betachef.schubergphilis.com"                      # todo remove default
 PLATFORM_VERSION = "2012r2"
 PLATFORM_ARCHITECTURE = "x86_64"
 CHEF_VERSION = "11.14.2-1"
@@ -139,38 +146,40 @@ MSI_URL = "https://%s/chef-guard/download?p=windows&pv=%s&m=%s&v=%s" % (
     CHEF_VERSION
 )
 MSI_URL_RETRIES = 5
+SERVER_URL = "https://%s/organizations/lsimons" % CHEF_SERVER    # todo remove default
+VALIDATION_NAME = "lsimons-validator"                            # todo remove default
 
 
 ###########
 # code from cloudinit.config.cc_chef
 ###########
 CHEF_DIRS = tuple([
-    'C:\\chef',
-    'C:\\chef\\cache',
-    'C:\\opscode\\chef',
-    'C:\\opscode\\chef\\bin',
-    'C:\\opscode\\chef\\embedded',
-    'C:\\opscode\\chef\\embedded\\bin',
-    'C:\\opscode\\chef\\embedded\\etc',
-    'C:\\opscode\\chef\\embedded\\lib',
+    'C:/chef',
+    'C:/chef/cache',
+    'C:/opscode/chef',
+    'C:/opscode/chef/bin',
+    'C:/opscode/chef/embedded',
+    'C:/opscode/chef/embedded/bin',
+    'C:/opscode/chef/embedded/etc',
+    'C:/opscode/chef/embedded/lib',
 ])
 REQUIRED_CHEF_DIRS = tuple([
-    'C:\\chef',
+    'C:/chef',
 ])
 
-CHEF_VALIDATION_PEM_PATH = 'C:\\etc\chef\\validation.pem'
-CHEF_FB_PATH = 'C:\\etc\chef\\first-boot.json'
+CHEF_VALIDATION_PEM_PATH = 'C:/etc/chef/validation.pem'
+CHEF_FB_PATH = 'C:/etc/chef/first-boot.json'
 CHEF_RB_TPL_DEFAULTS = {
     # These are ruby symbols...
     'ssl_verify_mode': ':verify_none',
     'log_level': ':info',
     # These are not symbols...
-    'log_location': 'C:\\chef\\client.log',
+    'log_location': 'C:/chef/client.log',
     'validation_key': CHEF_VALIDATION_PEM_PATH,
-    'client_key': "C:\\chef\\client.pem",
+    'client_key': "C:/chef/client.pem",
     'json_attribs': CHEF_FB_PATH,
-    'file_cache_path': "C:\\chef\\cache",
-    'file_backup_path': "C:\\chef\\backup",
+    'file_cache_path': "C:/chef/cache",
+    'file_backup_path': "C:/chef/backup",
     'show_time': True,
 }
 CHEF_RB_TPL_BOOL_KEYS = frozenset(['show_time'])
@@ -192,11 +201,9 @@ CHEF_RB_TPL_KEYS.extend([
     'validation_name',
 ])
 CHEF_RB_TPL_KEYS = frozenset(CHEF_RB_TPL_KEYS)
-# CHEF_RB_PATH = '/etc/chef/client.rb'
-CHEF_RB_PATH = 'C:\\chef\\client.rb'
-# CHEF_EXEC_PATH = '/usr/bin/chef-client'
-CHEF_EXEC_PATH = 'C:\\opscode\\chef\\bin\\chef-client.bat'
-CHEF_EXEC_DEF_ARGS = tuple(['-d', '-i', '1800', '-s', '20'])
+CHEF_RB_PATH = "C:/chef/client.rb"
+CHEF_EXEC_PATH = "C:/opscode/chef/bin/chef-client.bat"
+CHEF_EXEC_DEF_ARGS = tuple(['-i', '1800', '-s', '20'])
 
 
 def is_installed():
@@ -336,7 +343,7 @@ def run_chef(chef_cfg, log):
             cmd.extend(CHEF_EXEC_DEF_ARGS)
     else:
         cmd.extend(CHEF_EXEC_DEF_ARGS)
-    subp(cmd, capture=False)
+    subp(cmd, capture=False, shell=True)
 
 
 def install_chef(chef_cfg, log):
@@ -353,7 +360,7 @@ def install_chef(chef_cfg, log):
     response.raw.decode_content = True
     with tempdir() as temp_dir:
         # Use tmpdir over tmpfile to avoid 'text file busy' on execute
-        temp_file = "%s\\chef-windows.msi" % temp_dir
+        temp_file = "%s/chef-windows.msi" % temp_dir
         write_file(temp_file, response.raw, mode=0700)
         subp(['msiexec', '/i', temp_file], capture=False)
     return True
